@@ -13,7 +13,7 @@
 
 #define PORT 6000
 #define MAX_BUFFER 1000
-#define MAX_CLIENTS 3
+#define MAX_CLIENTS 5
 #define NBETOILES 20
 #define NBLIGNES 6
 #define NBCOLONNES 10
@@ -31,15 +31,18 @@ void introduction1(char tampon[],char * pseudo);
 void introduction2(char tampon[]);
 void introduction3(char tampon[]);
 void introduction4(char tampon[]);
-void introduction5(char tampon[]);
-void intro_lvl(char tampon[]);
 void coord(int coordonnees[][2], int * nbmechants);
 void deplacement(char tampon[]);
-void pacman(char tampon[], int coordonnees[][2], bool *perdu);
-void fantome(int coordonnees[][2], bool *perdu, int *nbmechants, int * score);
-void send_score(char tampon[], int *score);
+void pacman(char tampon[], int coordonnees[][2]);
+void fantome(int coordonnees[][2], int *nbmechants);
+void etat(char tampon[], double *temps, bool *perdu);
+void continuer(char tampon[]);
+void timer(char tampon[]);
 void lose(char tampon[]);
-void resultat(bool *perdu, double temps, int *lvl, int* score);
+void resultat(char tampon[], bool *perdu, int *lvl, int* score, double temps);
+void record(char tampon[], FILE *file, int *lvl);
+void move(char tampon[], int coordonnees[][2], int *nbmechants, int *lvl, bool *perdu);
+void new_score(FILE *file,int *lvl, int *score, char *name);
 
 
 
@@ -60,14 +63,11 @@ int main(int argc, char const *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  // On prépare l’adresse d’attachement locale
   longueurAdresse = sizeof(struct sockaddr_in);
   memset(&coordonneesServeur, 0x00, longueurAdresse);
 
   coordonneesServeur.sin_family = PF_INET;
-  // toutes les interfaces locales disponibles
   coordonneesServeur.sin_addr.s_addr = htonl(INADDR_ANY);
-  // toutes les interfaces locales disponibles
   coordonneesServeur.sin_port = htons(PORT);
 
   if (bind(fdSocketAttente, (struct sockaddr *) &coordonneesServeur, sizeof(coordonneesServeur)) == -1) {
@@ -91,7 +91,7 @@ int main(int argc, char const *argv[]) {
       exit(EXIT_FAILURE);
     }
 
-    printf("Client connecté - %s:%d\n",
+    printf("Client connectÃ© - %s:%d\n",
 	   inet_ntoa(coordonneesAppelant.sin_addr),
 	   ntohs(coordonneesAppelant.sin_port));
 
@@ -100,38 +100,43 @@ int main(int argc, char const *argv[]) {
 
       // Initialisation
 
-      int i = 0;
-      bool reset = true;
-      int nbmechants;
-      char press;
+      FILE* file = NULL;
+
       char name[25];
+      char press;
+
+      int i;
+      int nbmechants;
       int score = 0;
       int lvl = 0;
+
+      double temps;
+      
+      bool reset = true;
       bool perdu = false;
       bool hard;
-      clock_t start, end, middle;
-      double temps;
+      
+      struct timeval start, middle;
       srand(time(NULL));
 
 
       // Introduction
-      /* pseudo(tampon);
+      pseudo(tampon);
       send(fdSocketCommunication, tampon, strlen(tampon), 0);
 	    
       nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);	    
       if (nbRecu > 0) {
-	tampon[nbRecu] = 0;
-	printf("Recu de %s:%d : %s\n",
-	       inet_ntoa(coordonneesAppelant.sin_addr),
-	       ntohs(coordonneesAppelant.sin_port),
-	       tampon);
-	snprintf(name,MAX_BUFFER,tampon);
+      tampon[nbRecu] = 0;
+      printf("Recu de %s:%d : %s\n",
+            inet_ntoa(coordonneesAppelant.sin_addr),
+            ntohs(coordonneesAppelant.sin_port),
+            tampon);
+      snprintf(name,MAX_BUFFER,tampon);
 
-	if (testQuitter(tampon)) {
-	  break; // on quitte la boucle
-	}
+        if (testQuitter(tampon))
+          break;
       }
-	    
+      
       introduction1(tampon, name);
       send(fdSocketCommunication, tampon, strlen(tampon), 0);
 
@@ -139,43 +144,27 @@ int main(int argc, char const *argv[]) {
       send(fdSocketCommunication, tampon, strlen(tampon), 0);
 	    
       introduction3(tampon);
-      send(fdSocketCommunication, tampon, strlen(tampon), 0);*/
-            
-            
-      intro_lvl(tampon);
       send(fdSocketCommunication, tampon, strlen(tampon), 0);
-	      
-      do {
-	nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);
-	if (nbRecu > 0) {
-	  tampon[nbRecu] = 0;
-	  printf("Recu de %s:%d : %s\n",
-		 inet_ntoa(coordonneesAppelant.sin_addr),
-		 ntohs(coordonneesAppelant.sin_port),
-		 tampon);
-	  lvl = atoi(tampon);
 
-	  if (testQuitter(tampon)) {
-	    break; // on quitte la boucle
-	  }
-	}
-	if ((lvl == 1) || (lvl == 2) || (lvl == 3)){
-	  reset = false;
-	} else {
-	  introduction4(tampon);
-	  send(fdSocketCommunication, tampon, strlen(tampon), 0);
-	}
-      } while (reset == true);
+      nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);
+      if (nbRecu > 0) {
+	tampon[nbRecu] = 0;
+	lvl = atoi(tampon);
+	testQuitter(tampon);
+      }
       
-      introduction5(tampon);
+      record(tampon, file, &lvl);
+      send(fdSocketCommunication, tampon, strlen(tampon), 0);
+      
+      introduction4(tampon);
       send(fdSocketCommunication, tampon, strlen(tampon), 0);
 
-      if (lvl != 3){
-        hard = false;
-	nbmechants = 2;
-      } else {
+      if ((lvl == 3) || (lvl == 5)){
         hard = true;
-        nbmechants = 3;
+	nbmechants = 3;
+      } else {
+        hard = false;
+        nbmechants = 2;
       }
 
       int coordonnees[NBETOILES + nbmechants][2];
@@ -186,107 +175,84 @@ int main(int argc, char const *argv[]) {
 
       coord(coordonnees, &nbmechants);
 
-      // Début du jeu
+      // DÃ©but du jeu
 
-      start = clock();
+      sleep(2);
+      gettimeofday (&start, NULL);
 
-      do{
-	// Envoi score
-	send_score(tampon, &score);
-	send(fdSocketCommunication, tampon, strlen(tampon), 0);
-	
-	// Envoi grille
-	for (i = 0; i < (1 + nbmechants + NBETOILES); i++) {
-	  usleep(10);
-	  (send(fdSocketCommunication, coordonnees[i], coordonnees[i][0]+1, 0));
-	}
-	for (i = 0; i < (1 + nbmechants + NBETOILES); i++) {
-	  usleep(10);
-	  (send(fdSocketCommunication, coordonnees[i], coordonnees[i][1]+1, 0));
-	}
-
-	// Demande déplacement
+      // Envoi grille;
+      for (i = 0; i < (1 + nbmechants + NBETOILES); i++) {
+	usleep(100);
+	(send(fdSocketCommunication, coordonnees[i], coordonnees[i][0]+1, 0));
+	usleep(100);
+	(send(fdSocketCommunication, coordonnees[i], coordonnees[i][1]+1, 0));
+      }
       
+      do{
+	// Demande dÃ©placement
 	deplacement(tampon);
 	send(fdSocketCommunication, tampon, strlen(tampon), 0);
 
-	// Reception déplacement
+	// Reception dÃ©placement
 	nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);
-
 	if (nbRecu > 0) {
 	  tampon[nbRecu] = 0;
-	  printf("Recu de %s:%d : %s\n",
-		 inet_ntoa(coordonneesAppelant.sin_addr),
-		 ntohs(coordonneesAppelant.sin_port),
-		 tampon);
 	  testQuitter(tampon);
 	}
-	
-	pacman(tampon, coordonnees, &perdu);
 
-	for (int i=1; i<= nbmechants; i++){
-	  if ((coordonnees[0][0] == coordonnees[i][0]) && (coordonnees[0][1] == coordonnees[i][1])){
-	    perdu = true;
-	  }
+	gettimeofday (&middle, NULL);
+	temps = (middle.tv_sec - start.tv_sec) + ((middle.tv_usec - start.tv_usec)/1000000000.0);
+
+	move(tampon, coordonnees, &nbmechants, &lvl, &perdu);
+
+	etat(tampon, &temps, &perdu);
+	send(fdSocketCommunication, tampon, strlen(tampon), 0);
+	
+        
+	// Envoi grille
+	for (i = 0; i < (1 + nbmechants); i++) {
+	  usleep(100);
+	  (send(fdSocketCommunication, coordonnees[i], coordonnees[i][0]+1, 0));
+	  usleep(100);
+	  (send(fdSocketCommunication, coordonnees[i], coordonnees[i][1]+1, 0));
 	}
 	
-	if (perdu == false){
-	  fantome(coordonnees, &perdu, &nbmechants, &score);
-	  
-	  if (perdu == false){
-	    usleep(10);
-	    snprintf(tampon, MAX_BUFFER,"suite");
-	    send(fdSocketCommunication, tampon, strlen(tampon), 0);
-	  } else {
-	    usleep(10);
-	    lose(tampon);
-	    send(fdSocketCommunication, tampon, strlen(tampon), 0);
+	nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);
+	if (nbRecu > 0) {
+	  tampon[nbRecu] = 0;
+	  if (strcmp(tampon,"0") == 0){
+	    score = 20;
 	  }
-        } else if (perdu == true){
-	  // Sorti de grille
-	  usleep(10);
-	  lose(tampon);
-	  send(fdSocketCommunication, tampon, strlen(tampon), 0);
+	  testQuitter(tampon);
 	}
-	
-	temps = ((double)middle - start) / CLOCKS_PER_SEC;
-	if (temps > 60){
-	  perdu = true;
-	  usleep(10);
-	  snprintf(tampon, MAX_BUFFER, "\n     Le temps est ecoule ! ");
-	  send(fdSocketCommunication, tampon, strlen(tampon), 0);
-        }
-	
       } while ((perdu == false) && (score != 20));
+
+      usleep(5000);
       
-      end = clock();
-      temps = ((double)end - start) / CLOCKS_PER_SEC;
+      // RÃ©ception score
+      nbRecu = recv(fdSocketCommunication, tampon, MAX_BUFFER, 0);
+      if (nbRecu > 0) {
+	tampon[nbRecu] = 0;
+	score = atoi(tampon);
 
-      // Envoi grille finale
-      for (i = 0; i < (1 + nbmechants + NBETOILES); i++) {
-	usleep(10);
-	(send(fdSocketCommunication, coordonnees[i], coordonnees[i][0]+1, 0));
-      }
-      for (i = 0; i < (1 + nbmechants + NBETOILES); i++) {
-	usleep(10);
-	(send(fdSocketCommunication, coordonnees[i], coordonnees[i][1]+1, 0));
+	testQuitter(tampon);
       }
 
-      if (perdu == true){
-	//send(fdSocketCommunication, tampon, strlen(tampon), 0);
-      } else {
-	printf("fin du game bb ");
-      }
+      // Envoi rÃ©sultat
+      resultat(tampon, &perdu, &lvl, &score, temps);
+      send(fdSocketCommunication, tampon, strlen(tampon), 0);
 
-      //resultat(perdu, temps, lvl, score);
-
-
+      // Save score
+      new_score(file, &lvl, &score, name);
+      
+      printf("Client dÃ©connectÃ© - %s:%d\n",
+	   inet_ntoa(coordonneesAppelant.sin_addr),
+	   ntohs(coordonneesAppelant.sin_port));
       exit(EXIT_SUCCESS);
     }
 
     nbClients++;
   }
-
   close(fdSocketCommunication);
   close(fdSocketAttente);
 
@@ -318,27 +284,17 @@ void introduction1(char tampon[],char * pseudo){
 
 void introduction2(char tampon[]){
   sleep(1);
-  snprintf(tampon, MAX_BUFFER, "     L'objectif est de recuperer 20 etoiles en 1 minute\n     Vous deplacerez votre personnage avec les touches ZQSD\n");
+  snprintf(tampon, MAX_BUFFER, "     L'objectif est de recupÃ©rer 20 Ã©toiles en 1 minute\n     Vous dÃ©placerez votre personnage avec les touches ZQSD\n");
 }
 
 void introduction3(char tampon[]){
   sleep(2);
-  snprintf(tampon, MAX_BUFFER, "\n     Niveau 1 : Deux fantomes, pas de perte de points\n     Niveau 2 : Deux fantomes, perte de points / 15 secondes\n     Niveau 3 : Trois fantomes, perte de points / 15 secondes\n");
-}
-
-void intro_lvl(char tampon[]){
- usleep(500000);
-  snprintf(tampon, MAX_BUFFER,"\n     Saisir le niveau de difficulte : ");
+  snprintf(tampon, MAX_BUFFER, "     Niveau 1 : Deux fantomes, pas de perte de points\n     Niveau 2 : Deux fantomes, perte de points / 15 secondes\n     Niveau 3 : Trois fantomes, perte de points / 15 secondes\n     Niveau 4 : Deux fantomes evoluÃ©s, perte de points / 15 secondes\n     Niveau 5 : Ultime\n");
 }
 
 void introduction4(char tampon[]){
-  sleep(1);
-  snprintf(tampon, MAX_BUFFER,"\n     Choisir parmi les niveaux de difficulte !\n     Saisir le niveau de difficulte :");
-}
-
-void introduction5(char tampon[]){
-  usleep(10);
-  snprintf(tampon, MAX_BUFFER,"     Le chronometre debute a l'affichage du jeu\n     Que le meilleur gagne!\n");
+  sleep(2);
+  snprintf(tampon, MAX_BUFFER,"     Le chronometre debutera a l'affichage du jeu\n     Que le meilleur gagne!\n");
 }
 
 void coord(int coordonnees[][2], int * nbmechants){
@@ -368,117 +324,164 @@ void deplacement(char tampon[]){
   snprintf(tampon, MAX_BUFFER,"\n     Ou veux-tu te deplacer ?");
 }
 
-void pacman(char tampon[], int coordonnees[][2], bool *perdu){
+void pacman(char tampon[], int coordonnees[][2]){
   if (strcmp(tampon,"q") == 0){
-    coordonnees[0][1] -= 1;
+    if (coordonnees[0][1] - 1 >=0){
+      coordonnees[0][1] -= 1;
+    }
   } else if (strcmp(tampon,"d") == 0){
-    coordonnees[0][1] += 1;
+    if (coordonnees[0][1] + 1 < NBCOLONNES){
+      coordonnees[0][1] += 1;
+    }
   } else if (strcmp(tampon,"z") == 0){
-    coordonnees[0][0] -= 1;
+    if (coordonnees[0][0] - 1 >=0){
+      coordonnees[0][0] -= 1;
+    }
   } else if (strcmp(tampon,"s") == 0){
-    coordonnees[0][0] += 1;
-  }
-  
-  if ((coordonnees[0][1] < 0) || (coordonnees[0][1] >= NBCOLONNES) || (coordonnees[0][0] < 0) || (coordonnees[0][0] >= NBLIGNES)){
-    usleep(10);
-    snprintf(tampon, MAX_BUFFER,"\n     Vous etes sorti de la grille\n");
-    *perdu = true;
+    if (coordonnees[0][0] + 1 < NBLIGNES){
+      coordonnees[0][0] += 1;
+    }
   }
 }
 
-void fantome(int coordonnees[][2], bool *perdu, int *nbmechants, int * score){
+void fantome(int coordonnees[][2], int *nbmechants){
   bool reset;  
-  printf("pacman (%d,%d)\n",coordonnees[0][0],coordonnees[0][1]);
   for (int i=1; i<(*nbmechants+1);i++){
-    do{
-      reset = false;
-      //? abscisse ou ordonnée
-      int move = rand()%2;
-      int last = coordonnees[i][move];
-      if (coordonnees[i][move] > coordonnees[0][move]){
-	coordonnees[i][move] -= 1;
-      } else if (coordonnees[i][move] < coordonnees[0][move]){
-	coordonnees[i][move] += 1;
-      } else {
-	if (move == 0){
-	  if (coordonnees[i][1] > coordonnees[0][1]){
-	    coordonnees[i][1] -= 1;
-	  } else {
-	    coordonnees[i][1] += 1;
-	  }
+    int move = rand()%2;
+    if (coordonnees[i][move] > coordonnees[0][move]){
+      coordonnees[i][move] -= 1;
+    } else if (coordonnees[i][move] < coordonnees[0][move]){
+      coordonnees[i][move] += 1;
+    } else {
+      if (move == 0){
+	if (coordonnees[i][1] > coordonnees[0][1]){
+	  coordonnees[i][1] -= 1;
 	} else {
-	  if (coordonnees[i][0] > coordonnees[0][0]){
-	    coordonnees[i][0] -= 1;
-	  } else {
-	    coordonnees[i][0] += 1;
-	  }
+	  coordonnees[i][1] += 1;
+	}
+      } else {
+	if (coordonnees[i][0] > coordonnees[0][0]){
+	  coordonnees[i][0] -= 1;
+	} else {
+	  coordonnees[i][0] += 1;
 	}
       }
-      if ((i > 1) && (i <= *nbmechants)){
-	if((coordonnees[i][0] == coordonnees[i-1][0]) && (coordonnees[i][1] == coordonnees[i-1][1])){
-	  printf("fant[%d] (%d,%d) = fant[%d] (%d,%d)\n",i, coordonnees[i][0],coordonnees[i][1], i-1,coordonnees[i-1][0],coordonnees[i-1][1]);
-	  coordonnees[i][move] = last;
-	  reset = true;
-	}
-      }
-      // printf("fant[%d] = (%d,%d)\n",i,coordonnees[i][0],coordonnees[i][1]);
-    } while (reset == true);
+    }
+  } 
+}
+
+void move(char tampon[], int coordonnees[][2], int *nbmechants, int *lvl, bool *perdu){
+  if(*lvl < 4){
+    fantome(coordonnees, nbmechants);
+    pacman(tampon, coordonnees);
+  } else {
+    pacman(tampon, coordonnees);
+    fantome(coordonnees, nbmechants);
   }
 
+	
   // Mechant kill Pacman
-  for (int i=+1; i<(*nbmechants+1);i++){
+  for (int i=1; i<(*nbmechants+1);i++){
     if ((coordonnees[i][0] == coordonnees[0][0]) && (coordonnees[i][1] == coordonnees[0][1])){
       *perdu = true;
-      printf("pacman[%d] (%d,%d) = fant[%d] (%d,%d)\n",i, coordonnees[0][0],coordonnees[0][1], i,coordonnees[i][0],coordonnees[i][1]);
-    }
-  }
-
-  // Pacman eat star
-  for (int i = (*nbmechants+1); i < (1+(*nbmechants)+NBETOILES) ;i++){
-    if ((coordonnees[i][0] == coordonnees[0][0]) && (coordonnees[i][1] == coordonnees[0][1])){
-      //printf("\n       Pacman mange une etoile !\n");
-      coordonnees[i][0] = 100;
-      coordonnees[i][1] = 100;
-      *score += 1;
     }
   }
 }
 
-void send_score(char tampon[], int *score){
-  usleep(10);
-  char a[2];
-  sprintf(a, "%d", *score);
-  snprintf(tampon, MAX_BUFFER,"\n           Votre score est : %s\n",a);
+void etat(char tampon[], double *temps, bool *perdu){
+  if ((*perdu == false) && (*temps <= 60)){
+    continuer(tampon);
+  } else {
+    if (*temps > 60){
+      *perdu = true;
+      timer(tampon);
+    } else {
+      lose(tampon);
+    }
+  }
 }
+
+void continuer(char tampon[]){
+  usleep(100);
+  snprintf(tampon, MAX_BUFFER,"0");
+}
+
+void timer(char tampon[]){
+  usleep(100);
+  snprintf(tampon, MAX_BUFFER, "\n\n           Limite de temps depassee !\n          ----------------------------");
+}    
 
 void lose(char tampon[]){
-  usleep(10);
-  snprintf(tampon, MAX_BUFFER,"                  Game over\n");
+  usleep(100);
+  snprintf(tampon, MAX_BUFFER,"                *************\n                * Game over *\n                *************\n");
 }
-/*
-void resultat(bool *perdu, double temps, int *lvl, int* score){
-    printf("\n\n       Votre temps est %.1f secondes.\n", temps);
-    if (*lvl != 1){
-        for (int i=0;i<20;i++){
-            if (temps > 15){
-                temps -= 15;
-                *score -=1;
-            } else {
-                break;
-            }
-        }
-        if (*score < 0){
-            *score = 0;
-        }
-        printf("       Votre score final est : %d\n", *score);
-    }
 
-    if (*perdu == true){
-      usleep(10);
-      snprintf(tampon, MAX_BUFFER,"           Dommage, vous avez perdu !");
-    } else {
-      usleep(10);
-      snprintf(tampon, MAX_BUFFER,"\n   (|___/)      Felicitations       (|___/)\n   (='.'=)        -   -   -         (='.'=)\n  ('')_('')    Vous avez gagne !   ('')_('')\n\n");
+void resultat(char tampon[], bool *perdu, int *lvl, int* score, double temps){
+  if (*lvl != 1){
+    int a = temps/15;
+    *score -=  a;
+    if (*score < 0){
+      *score = 0;
+    }
+  }
+
+  if (*perdu == true){
+    usleep(10);
+    snprintf(tampon, MAX_BUFFER,"\n\n          Votre temps est %.1f secondes.\n            Votre score final est : %d\n\n            Dommage, vous avez perdu !\n\n", temps, *score);
+  } else {
+    usleep(10);
+    snprintf(tampon, MAX_BUFFER,"\n\n          Votre temps est %.1f secondes.\n                 Score final : %d\n\n      (|___/)      Felicitations       (|___/)\n      (='.'=)        -   -   -         (='.'=)\n     ('')_('')    Vous avez gagne !   ('')_('')\n\n", temps, *score);
     sleep(5);
+  }
 }
-*/
+
+
+void record(char tampon[], FILE *file, int *lvl){
+  char *fonction = NULL;
+  char *separateur ={" "};
+  char niveau[5];
+  char joueur[30];
+  char raw[MAX_BUFFER];
+  int score_bis;
+  int score = 0;
+
+  snprintf(niveau, 5, "%d",*lvl);
+  
+  file = fopen("historique.txt", "r");
+  if (file != NULL){
+       // tant qu'il n'a pas parcouru l'intÃ©gralitÃ© du file
+    while (fgets(raw, MAX_BUFFER, file) != NULL){
+      fonction = strtok(raw, separateur);
+            
+      // SÃ©lection du niveau
+      if (strcmp(fonction,niveau) == 0){
+	fonction = strtok(NULL, separateur);
+	score_bis = atoi(fonction);
+
+	// score max ?
+	if (score_bis > score){
+	  score = score_bis;
+	  fonction = strtok(NULL, separateur);
+	  strcpy(joueur,fonction);
+	}
+      }
+    }
+    fclose(file);
+    }
+  
+  if (score == 0){
+    usleep(100);
+    snprintf(tampon, MAX_BUFFER,"\n     -->  Niveau %s: Aucun record  <-- \n\n", niveau);
+      } else {
+    usleep(100);
+    snprintf(tampon, MAX_BUFFER,"\n\n        -->  Niveau %s: Record detenu par %s  %d!  <-- \n\n", niveau, joueur, score);
+  }
+}
+
+void new_score(FILE *file,int *lvl, int *score, char *name){
+  file = fopen("historique.txt", "a");
+  if (file != NULL){
+    fprintf(file,"%d %d %s \n", *lvl, *score, name);
+    fclose(file);
+  }
+}
